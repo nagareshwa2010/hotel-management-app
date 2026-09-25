@@ -5,12 +5,11 @@ import sqlite3
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_v3")
 
-# Database Initialization with Auto-Migration Fix
+# Database Initialization
 def init_db():
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
     
-    # 1. Bookings Table Creation
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,7 +21,6 @@ def init_db():
         )
     ''')
     
-    # 2. Migration Check: Ensure meal_plan column exists in existing database
     cursor.execute("PRAGMA table_info(bookings)")
     columns = [column[1] for column in cursor.fetchall()]
     if 'meal_plan' not in columns:
@@ -31,7 +29,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Run DB initialization safely
 try:
     init_db()
 except Exception as e:
@@ -47,8 +44,8 @@ ROOMS_DATA = [
     {"id": 6, "name": "Penthouse Suite", "price": 20000, "desc": "Top floor panoramic city view, private terrace, and plunge pool.", "img": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=500&q=80"}
 ]
 
-# Base Layout
-BASE_HTML = """
+# Base Layout Template
+BASE_LAYOUT = """
 <!DOCTYPE html>
 <html lang="ta">
 <head>
@@ -115,7 +112,7 @@ BASE_HTML = """
 
         <!-- Main Content Area -->
         <div class="col-md-9 col-lg-10 p-4">
-            {% block content %}{% endblock %}
+            BODY_CONTENT
         </div>
     </div>
 </div>
@@ -125,9 +122,8 @@ BASE_HTML = """
 </html>
 """
 
-# Templates
-HOME_TEMPLATE = BASE_HTML + """
-{% block content %}
+# Content Templates
+HOME_CONTENT = """
 <div class="hero-banner mb-4">
     <h1 class="display-4 fw-bold">Welcome to NR Hotel</h1>
     <p class="lead">Experience World-Class Luxury, Elegant Rooms & Dining</p>
@@ -156,11 +152,9 @@ HOME_TEMPLATE = BASE_HTML + """
         </div>
     </div>
 </div>
-{% endblock %}
 """
 
-ROOMS_TEMPLATE = BASE_HTML + """
-{% block content %}
+ROOMS_CONTENT = """
 <h2 class="mb-4">Our Rooms & Suites</h2>
 <div class="row g-4">
     {% for room in rooms %}
@@ -179,11 +173,9 @@ ROOMS_TEMPLATE = BASE_HTML + """
     </div>
     {% endfor %}
 </div>
-{% endblock %}
 """
 
-BOOKING_TEMPLATE = BASE_HTML + """
-{% block content %}
+BOOKING_CONTENT = """
 <div class="container" style="max-width: 650px;">
     <div class="bg-white p-4 rounded-3 shadow-sm">
         <h3 class="mb-4 text-center">Room Reservation</h3>
@@ -219,11 +211,9 @@ BOOKING_TEMPLATE = BASE_HTML + """
         </form>
     </div>
 </div>
-{% endblock %}
 """
 
-STATUS_TEMPLATE = BASE_HTML + """
-{% block content %}
+STATUS_CONTENT = """
 <h2 class="mb-4">Room Availability & Live Bookings</h2>
 <div class="card border-0 shadow-sm mb-5">
     <div class="card-header bg-dark text-white fw-bold">Room Availability Overview</div>
@@ -300,23 +290,27 @@ STATUS_TEMPLATE = BASE_HTML + """
         </div>
     </div>
 </div>
-{% endblock %}
 """
+
+# Helper function to render pages with base layout
+def render_page(content, **context):
+    full_template = BASE_LAYOUT.replace("BODY_CONTENT", content)
+    return render_template_string(full_template, **context)
 
 # Routes
 @app.route('/')
 def home():
     init_db()
-    return render_template_string(HOME_TEMPLATE, active_page='home')
+    return render_page(HOME_CONTENT, active_page='home')
 
 @app.route('/rooms')
 def rooms():
-    return render_template_string(ROOMS_TEMPLATE, rooms=ROOMS_DATA, active_page='rooms')
+    return render_page(ROOMS_CONTENT, rooms=ROOMS_DATA, active_page='rooms')
 
 @app.route('/book_page')
 def book_page():
     selected_room = request.args.get('room', '')
-    return render_template_string(BOOKING_TEMPLATE, rooms=ROOMS_DATA, selected_room=selected_room, active_page='book')
+    return render_page(BOOKING_CONTENT, rooms=ROOMS_DATA, selected_room=selected_room, active_page='book')
 
 @app.route('/book', methods=['POST'])
 def book():
@@ -363,7 +357,7 @@ def status():
             "is_booked": r["name"] in booked_room_names
         })
         
-    return render_template_string(STATUS_TEMPLATE, bookings=bookings, availability=availability, active_page='status')
+    return render_page(STATUS_CONTENT, bookings=bookings, availability=availability, active_page='status')
 
 if __name__ == '__main__':
     app.run(debug=True)
