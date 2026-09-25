@@ -1,15 +1,52 @@
 import os
-from flask import Flask, request, render_template_string, redirect, url_for
 import sqlite3
+from datetime import datetime
+from flask import Flask, request, render_template_string, redirect, url_for, session
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_v3")
+app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_v4")
 
 # Database Initialization
 def init_db():
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
     
+    # 1. Users Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            is_admin INTEGER DEFAULT 0
+        )
+    ''')
+    
+    # Migration check for is_admin column
+    cursor.execute("PRAGMA table_info(users)")
+    user_columns = [column[1] for column in cursor.fetchall()]
+    if 'is_admin' not in user_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+
+    # Default Admin user (admin / admin123)
+    cursor.execute("SELECT * FROM users WHERE username = 'admin'")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)", ("admin", "admin123", 1))
+
+    # Default Guest user account
+    cursor.execute("SELECT * FROM users WHERE username = 'Guest_User'")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)", ("Guest_User", "guestpass", 0))
+
+    # 2. Active User Sessions Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS active_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            login_time TEXT NOT NULL
+        )
+    ''')
+
+    # 3. Bookings Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,14 +54,15 @@ def init_db():
             room_type TEXT NOT NULL,
             nights INTEGER NOT NULL,
             meal_plan TEXT DEFAULT 'No Meal (Room Only)',
-            total_price INTEGER NOT NULL
+            total_price INTEGER NOT NULL,
+            status TEXT DEFAULT 'Booked'
         )
     ''')
     
     cursor.execute("PRAGMA table_info(bookings)")
-    columns = [column[1] for column in cursor.fetchall()]
-    if 'meal_plan' not in columns:
-        cursor.execute("ALTER TABLE bookings ADD COLUMN meal_plan TEXT DEFAULT 'No Meal (Room Only)'")
+    booking_columns = [column[1] for column in cursor.fetchall()]
+    if 'status' not in booking_columns:
+        cursor.execute("ALTER TABLE bookings ADD COLUMN status TEXT DEFAULT 'Booked'")
         
     conn.commit()
     conn.close()
@@ -33,6 +71,32 @@ try:
     init_db()
 except Exception as e:
     print(f"Database setup note: {e}")
+
+# Helper Functions
+def is_admin_user():
+    if 'username' not in session:
+        return False
+    conn = sqlite3.connect("hotel_enterprise.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_admin FROM users WHERE username = ?", (session['username'],))
+    user = cursor.fetchone()
+    conn.close()
+    return user and user[0] == 1
+
+def log_user_session(username):
+    conn = sqlite3.connect("hotel_enterprise.db")
+    cursor = conn.cursor()
+    login_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("INSERT OR REPLACE INTO active_sessions (username, login_time) VALUES (?, ?)", (username, login_time))
+    conn.commit()
+    conn.close()
+
+def clear_user_session(username):
+    conn = sqlite3.connect("hotel_enterprise.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM active_sessions WHERE username = ?", (username,))
+    conn.commit()
+    conn.close()
 
 # Rooms Data
 ROOMS_DATA = [
@@ -47,7 +111,7 @@ ROOMS_DATA = [
 # Base Layout Template
 BASE_LAYOUT = """
 <!DOCTYPE html>
-<html lang="ta">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -83,6 +147,14 @@ BASE_LAYOUT = """
         <!-- Left Sidebar -->
         <div class="col-md-3 col-lg-2 sidebar p-3 d-flex flex-column">
             <div class="brand-title my-3 text-center">🏰 NR Hotel</div>
+            
+            {% if session.get('username') %}
+            <div class="text-center text-warning mb-2 small">
+                <i class="bi bi-person-circle"></i> Logged in as: <strong>{{ session.get('username') }}</strong>
+                {% if is_admin %}<br><span class="badge bg-danger mt-1">Admin</span>{% endif %}
+            </div>
+            {% endif %}
+
             <hr class="text-secondary">
             <ul class="nav nav-pills flex-column mb-auto">
                 <li class="nav-item">
@@ -105,6 +177,30 @@ BASE_LAYOUT = """
                         <i class="bi bi-card-checklist"></i> Bookings & Status
                     </a>
                 </li>
+                <hr class="text-secondary">
+                {% if session.get('username') %}
+                <li>
+                    <a href="/logout" class="nav-link text-danger">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </a>
+                </li>
+                {% else %}
+                <li>
+                    <a href="/login" class="nav-link {% if active_page == 'login' %}active{% endif %}">
+                        <i class="bi bi-box-arrow-in-right"></i> Login
+                    </a>
+                </li>
+                <li>
+                    <a href="/register" class="nav-link {% if active_page == 'register' %}active{% endif %}">
+                        <i class="bi bi-person-plus-fill"></i> Register
+                    </a>
+                </li>
+                <li>
+                    <a href="/guest_login" class="nav-link text-info">
+                        <i class="bi bi-person-badge-fill"></i> Guest Login
+                    </a>
+                </li>
+                {% endif %}
             </ul>
             <hr class="text-secondary">
             <div class="text-center text-muted small">© 2026 NR Hotel Group</div>
@@ -122,33 +218,63 @@ BASE_LAYOUT = """
 </html>
 """
 
-# Content Templates
+# Page Templates
 HOME_CONTENT = """
 <div class="hero-banner mb-4">
     <h1 class="display-4 fw-bold">Welcome to NR Hotel</h1>
     <p class="lead">Experience World-Class Luxury, Elegant Rooms & Dining</p>
     <a href="/rooms" class="btn btn-gold btn-lg mt-3">Explore All Rooms</a>
 </div>
-<div class="row text-center g-4 my-3">
-    <div class="col-md-4">
-        <div class="p-4 bg-white rounded-3 shadow-sm">
-            <i class="bi bi-cup-hot-fill fs-1 text-warning"></i>
-            <h4 class="mt-3">Meal Plans</h4>
-            <p class="text-muted">Choose from Breakfast Only, Half Board, or Premium Full Board options.</p>
+"""
+
+LOGIN_CONTENT = """
+<div class="container" style="max-width: 450px;">
+    <div class="bg-white p-4 rounded-3 shadow-sm mt-5">
+        <h3 class="mb-4 text-center">Login</h3>
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <form action="/login" method="POST">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Username</label>
+                <input type="text" name="username" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Password</label>
+                <input type="password" name="password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-gold w-100 py-2">Login</button>
+        </form>
+        <hr>
+        <div class="text-center">
+            <a href="/guest_login" class="btn btn-outline-info w-100 py-2 mb-2">
+                <i class="bi bi-person-badge-fill"></i> Continue as Guest
+            </a>
+            <small class="text-muted">Default Admin Credentials: <b>admin / admin123</b></small>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="p-4 bg-white rounded-3 shadow-sm">
-            <i class="bi bi-shield-check fs-1 text-success"></i>
-            <h4 class="mt-3">Instant Booking</h4>
-            <p class="text-muted">Easily reserve suites online with flexible options and dynamic pricing.</p>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="p-4 bg-white rounded-3 shadow-sm">
-            <i class="bi bi-building-check fs-1 text-primary"></i>
-            <h4 class="mt-3">Real-time Status</h4>
-            <p class="text-muted">Check live room availability and view current reservation lists anytime.</p>
+</div>
+"""
+
+REGISTER_CONTENT = """
+<div class="container" style="max-width: 450px;">
+    <div class="bg-white p-4 rounded-3 shadow-sm mt-5">
+        <h3 class="mb-4 text-center">Register Account</h3>
+        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+        <form action="/register" method="POST">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Choose Username</label>
+                <input type="text" name="username" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Choose Password</label>
+                <input type="password" name="password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-gold w-100 py-2">Register</button>
+        </form>
+        <hr>
+        <div class="text-center">
+            <a href="/guest_login" class="btn btn-outline-info w-100 py-2">
+                <i class="bi bi-person-badge-fill"></i> Continue as Guest
+            </a>
         </div>
     </div>
 </div>
@@ -182,7 +308,7 @@ BOOKING_CONTENT = """
         <form action="/book" method="POST">
             <div class="mb-3">
                 <label class="form-label fw-bold">Guest Name</label>
-                <input type="text" name="guest_name" class="form-control" placeholder="Enter guest name" required>
+                <input type="text" name="guest_name" class="form-control" value="{{ session.get('username', '') }}" required>
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold">Select Room Type</label>
@@ -214,7 +340,49 @@ BOOKING_CONTENT = """
 """
 
 STATUS_CONTENT = """
-<h2 class="mb-4">Room Availability & Live Bookings</h2>
+<h2 class="mb-4">Room Availability & Dashboard</h2>
+
+{% if is_admin %}
+<!-- Admin Dashboard: Currently Logged-In Users -->
+<div class="card border-0 shadow-sm mb-5">
+    <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people-fill"></i> Admin Panel: Currently Logged-In Users</span>
+        <span class="badge bg-light text-dark">{{ active_users|length }} Active Session(s)</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>Username</th>
+                        <th>Login Timestamp</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in active_users %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td class="fw-bold text-primary">
+                            <i class="bi bi-person-circle"></i> {{ user[1] }}
+                        </td>
+                        <td>{{ user[2] }}</td>
+                        <td><span class="badge bg-success"><i class="bi bi-dot"></i> Online</span></td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted p-3">No active users recorded.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Room Availability Overview -->
 <div class="card border-0 shadow-sm mb-5">
     <div class="card-header bg-dark text-white fw-bold">Room Availability Overview</div>
     <div class="card-body p-0">
@@ -235,7 +403,7 @@ STATUS_CONTENT = """
                         <td>₹{{ item.price }} / night</td>
                         <td>
                             {% if item.is_booked %}
-                            <span class="badge badge-booked">Booked (Not Available)</span>
+                            <span class="badge badge-booked">Occupied</span>
                             {% else %}
                             <span class="badge badge-available">Available</span>
                             {% endif %}
@@ -255,8 +423,14 @@ STATUS_CONTENT = """
     </div>
 </div>
 
+<!-- Bookings List -->
 <div class="card border-0 shadow-sm">
-    <div class="card-header bg-dark text-white fw-bold">Recent Reservations List</div>
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <span class="fw-bold">Reservations List</span>
+        {% if is_admin %}
+        <span class="badge bg-warning text-dark">Admin Controls Enabled</span>
+        {% endif %}
+    </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-striped mb-0">
@@ -267,7 +441,10 @@ STATUS_CONTENT = """
                         <th>Room Type</th>
                         <th>Meal Plan</th>
                         <th>Nights</th>
-                        <th>Total Price</th>
+                        <th>Status</th>
+                        {% if is_admin %}
+                        <th>Admin Action</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -278,11 +455,30 @@ STATUS_CONTENT = """
                         <td>{{ b[2] }}</td>
                         <td><span class="badge bg-info text-dark">{{ b[4] if b|length > 4 else 'N/A' }}</span></td>
                         <td>{{ b[3] }}</td>
-                        <td class="text-success fw-bold">₹{{ b[5] if b|length > 5 else b[4] }}</td>
+                        <td>
+                            {% if b[6] == 'Checked In' %}
+                            <span class="badge bg-success">Checked In</span>
+                            {% elif b[6] == 'Checked Out' %}
+                            <span class="badge bg-secondary">Checked Out</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">Booked</span>
+                            {% endif %}
+                        </td>
+                        {% if is_admin %}
+                        <td>
+                            {% if b[6] == 'Booked' %}
+                            <a href="/checkin/{{ b[0] }}" class="btn btn-success btn-sm py-0">Check In</a>
+                            {% elif b[6] == 'Checked In' %}
+                            <a href="/checkout/{{ b[0] }}" class="btn btn-danger btn-sm py-0">Check Out</a>
+                            {% else %}
+                            <span class="text-muted small">Completed</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted p-3">No bookings recorded yet.</td>
+                        <td colspan="7" class="text-center text-muted p-3">No bookings recorded yet.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -292,10 +488,10 @@ STATUS_CONTENT = """
 </div>
 """
 
-# Helper function to render pages with base layout
+# Render Helper
 def render_page(content, **context):
     full_template = BASE_LAYOUT.replace("BODY_CONTENT", content)
-    return render_template_string(full_template, **context)
+    return render_template_string(full_template, is_admin=is_admin_user(), **context)
 
 # Routes
 @app.route('/')
@@ -303,17 +499,81 @@ def home():
     init_db()
     return render_page(HOME_CONTENT, active_page='home')
 
+@app.route('/guest_login')
+def guest_login():
+    init_db()
+    session['username'] = 'Guest_User'
+    log_user_session('Guest_User')
+    return redirect(url_for('home'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    init_db()
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        conn = sqlite3.connect("hotel_enterprise.db")
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, 0)", (username, password))
+            conn.commit()
+            conn.close()
+            session['username'] = username
+            log_user_session(username)
+            return redirect(url_for('home'))
+        except sqlite3.IntegrityError:
+            conn.close()
+            return render_page(REGISTER_CONTENT, active_page='register', error="Username already exists!")
+            
+    return render_page(REGISTER_CONTENT, active_page='register')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    init_db()
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        conn = sqlite3.connect("hotel_enterprise.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user:
+            session['username'] = username
+            log_user_session(username)
+            return redirect(url_for('home'))
+        else:
+            return render_page(LOGIN_CONTENT, active_page='login', error="Invalid username or password")
+            
+    return render_page(LOGIN_CONTENT, active_page='login')
+
+@app.route('/logout')
+def logout():
+    if 'username' in session:
+        clear_user_session(session['username'])
+        session.pop('username', None)
+    return redirect(url_for('home'))
+
 @app.route('/rooms')
 def rooms():
     return render_page(ROOMS_CONTENT, rooms=ROOMS_DATA, active_page='rooms')
 
 @app.route('/book_page')
 def book_page():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+        
     selected_room = request.args.get('room', '')
     return render_page(BOOKING_CONTENT, rooms=ROOMS_DATA, selected_room=selected_room, active_page='book')
 
 @app.route('/book', methods=['POST'])
 def book():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+        
     init_db()
     guest_name = request.form.get('guest_name')
     room_type = request.form.get('room_type')
@@ -332,11 +592,35 @@ def book():
     
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO bookings (guest_name, room_type, nights, meal_plan, total_price) VALUES (?, ?, ?, ?, ?)",
+    cursor.execute("INSERT INTO bookings (guest_name, room_type, nights, meal_plan, total_price, status) VALUES (?, ?, ?, ?, ?, 'Booked')",
                    (guest_name, room_type, nights, meal_plan, total_price))
     conn.commit()
     conn.close()
     
+    return redirect(url_for('status'))
+
+@app.route('/checkin/<int:booking_id>')
+def checkin(booking_id):
+    if not is_admin_user():
+        return redirect(url_for('login'))
+        
+    conn = sqlite3.connect("hotel_enterprise.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE bookings SET status = 'Checked In' WHERE id = ?", (booking_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('status'))
+
+@app.route('/checkout/<int:booking_id>')
+def checkout(booking_id):
+    if not is_admin_user():
+        return redirect(url_for('login'))
+        
+    conn = sqlite3.connect("hotel_enterprise.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE bookings SET status = 'Checked Out' WHERE id = ?", (booking_id,))
+    conn.commit()
+    conn.close()
     return redirect(url_for('status'))
 
 @app.route('/status')
@@ -344,20 +628,26 @@ def status():
     init_db()
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
+    
     cursor.execute("SELECT * FROM bookings ORDER BY id DESC")
     bookings = cursor.fetchall()
+    
+    # Retrieve active user sessions for Admin view
+    cursor.execute("SELECT * FROM active_sessions ORDER BY id DESC")
+    active_users = cursor.fetchall()
+    
     conn.close()
     
-    booked_room_names = [b[2] for b in bookings]
+    occupied_room_names = [b[2] for b in bookings if b[6] in ('Booked', 'Checked In')]
     availability = []
     for r in ROOMS_DATA:
         availability.append({
             "name": r["name"],
             "price": r["price"],
-            "is_booked": r["name"] in booked_room_names
+            "is_booked": r["name"] in occupied_room_names
         })
         
-    return render_page(STATUS_CONTENT, bookings=bookings, availability=availability, active_page='status')
+    return render_page(STATUS_CONTENT, bookings=bookings, availability=availability, active_users=active_users, active_page='status')
 
 if __name__ == '__main__':
     app.run(debug=True)
