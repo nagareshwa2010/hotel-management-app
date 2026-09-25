@@ -3,7 +3,7 @@ from flask import Flask, request, render_template_string, redirect, url_for, ses
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "5star_hotel_secret_key_for_demo")
+app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_for_demo")
 
 # Database Initialization
 def init_db():
@@ -25,14 +25,14 @@ def init_db():
 
 init_db()
 
-# Full HTML & CSS Template with 6 Room Types
+# Full HTML & CSS Template with Updated Hotel Name: NR Hotel
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ta">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Grand Palace - 5 Star Hotel Management</title>
+    <title>NR Hotel - 5 Star Luxury Management</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
     <style>
@@ -62,7 +62,7 @@ HTML_TEMPLATE = """
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
         <div class="container">
-            <a class="navbar-brand fs-3" href="/">🏰 Grand Palace</a>
+            <a class="navbar-brand fs-3" href="/">🏰 NR Hotel</a>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item"><a class="nav-link active" href="/">Home</a></li>
@@ -76,7 +76,7 @@ HTML_TEMPLATE = """
     <!-- Hero Banner -->
     <div class="hero-section">
         <div class="container">
-            <h1 class="display-3 fw-bold">Grand Palace Hotel</h1>
+            <h1 class="display-3 fw-bold">NR Hotel & Suites</h1>
             <p class="lead">Luxury Stay & World-Class Hospitality</p>
             <a href="#rooms" class="btn btn-gold btn-lg mt-3">Explore All Rooms</a>
         </div>
