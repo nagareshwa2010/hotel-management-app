@@ -5,367 +5,229 @@ import sqlite3
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "5star_hotel_secret_key_for_demo")
 
-MEAL_PLANS = {
-    "EP (Room Only)": 0,
-    "CP (Room + Breakfast)": 800,
-    "MAP (Room + Breakfast + Dinner)": 1800,
-    "AP (Room + All Meals)": 2800
-}
-
+# Database Initialization
 def init_db():
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
     
-    cursor.execute("""
+    # Users Table
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT,
-            role TEXT
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
         )
-    """)
+    ''')
     
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS rooms (
-            room_number INTEGER PRIMARY KEY,
-            category TEXT,
-            price_per_night REAL,
-            status TEXT DEFAULT 'Available',
-            guest_name TEXT DEFAULT '',
-            meal_plan TEXT DEFAULT 'EP (Room Only)'
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS service_bookings (
+    # Bookings Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guest_name TEXT,
-            service_type TEXT,
-            booking_date TEXT,
-            status TEXT DEFAULT 'Confirmed'
+            guest_name TEXT NOT NULL,
+            room_type TEXT NOT NULL,
+            nights INTEGER NOT NULL,
+            total_price INTEGER NOT NULL
         )
-    """)
-
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO users (username, password, role) VALUES ('admin', 'admin123', 'Admin')")
-        cursor.execute("INSERT INTO users (username, password, role) VALUES ('guest', 'guest123', 'Guest')")
-
-    cursor.execute("SELECT COUNT(*) FROM rooms")
-    if cursor.fetchone()[0] == 0:
-        default_rooms = [
-            (101, 'Deluxe Room', 5000, 'Available', '', 'EP (Room Only)'),
-            (102, 'Deluxe Room', 5000, 'Available', '', 'EP (Room Only)'),
-            (201, 'Super Deluxe', 8500, 'Available', '', 'EP (Room Only)'),
-            (202, 'Super Deluxe', 8500, 'Available', '', 'EP (Room Only)'),
-            (301, 'Executive Suite', 15000, 'Available', '', 'EP (Room Only)'),
-            (501, 'Presidential Suite', 35000, 'Available', '', 'EP (Room Only)')
-        ]
-        cursor.executemany("INSERT INTO rooms VALUES (?, ?, ?, ?, ?, ?)", default_rooms)
-
+    ''')
     conn.commit()
     conn.close()
 
 init_db()
 
-def get_db():
-    return sqlite3.connect("hotel_enterprise.db")
+# Full HTML & CSS Template with Modern 5-Star UI
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grand Palace - 5 Star Hotel Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Poppins', sans-serif; background-color: #f8f9fa; }
+        h1, h2, h3, .navbar-brand { font-family: 'Playfair Display', serif; }
+        .navbar { background-color: #0b132b !important; }
+        .navbar-brand, .nav-link { color: #d4af37 !important; }
+        .hero-section {
+            background: linear-gradient(rgba(11, 19, 43, 0.75), rgba(11, 19, 43, 0.75)), 
+                        url('https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1350&q=80');
+            background-size: cover; background-position: center;
+            color: white; padding: 90px 0; text-align: center;
+        }
+        .card-room {
+            border: none; border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        .card-room:hover { transform: translateY(-5px); }
+        .price-tag { color: #d4af37; font-weight: 600; font-size: 1.25rem; }
+        .btn-gold { background-color: #d4af37; color: #0b132b; font-weight: 600; border: none; }
+        .btn-gold:hover { background-color: #b59226; color: white; }
+    </style>
+</head>
+<body>
 
-@app.route("/", methods=["GET", "POST"])
-def login():
-    error = None
-    if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT username, role FROM users WHERE username=? AND password=?", (username, password))
-        user = cursor.fetchone()
-        conn.close()
-        
-        if user:
-            session['username'] = user[0]
-            session['role'] = user[1]
-            return redirect(url_for('dashboard'))
-        else:
-            error = "தவறான பயனர் பெயர் அல்லது கடவுச்சொல்!"
-
-    login_html = """
-    <!DOCTYPE html>
-    <html lang="ta">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Grand Palace Portal</title>
-        <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); height: 100vh; margin: 0; display: flex; justify-content: center; align-items: center; color: white; }
-            .login-card { background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(12px); padding: 25px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.37); width: 85%; max-width: 340px; text-align: center; border: 1px solid rgba(255,255,255,0.18); }
-            h2 { margin-bottom: 5px; color: #f1c40f; font-size: 24px; }
-            p { font-size: 13px; margin-bottom: 20px; color: #e0e0e0; }
-            input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 14px; margin: 8px 0; border: none; border-radius: 8px; background: rgba(255,255,255,0.95); font-size: 15px; }
-            input[type="submit"] { width: 100%; padding: 14px; border: none; border-radius: 8px; background: #f1c40f; color: #1a252f; font-weight: bold; font-size: 16px; cursor: pointer; margin-top: 12px; }
-            .demo-info { font-size: 11px; margin-top: 18px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; text-align: left; line-height: 1.5; }
-            .error { color: #ff6b6b; margin-top: 10px; font-weight: bold; font-size: 13px; }
-        </style>
-    </head>
-    <body>
-        <div class="login-card">
-            <h2>👑 Grand Palace</h2>
-            <p>5-Star Cloud Hotel Management System</p>
-            <form method="POST">
-                <input type="text" name="username" placeholder="Username" required><br>
-                <input type="password" name="password" placeholder="Password" required><br>
-                <input type="submit" value="Sign In">
-            </form>
-            {% if error %}
-                <div class="error">{{ error }}</div>
-            {% endif %}
-            <div class="demo-info">
-                <strong>Live Credentials:</strong><br>
-                🔑 Admin: admin / admin123<br>
-                🔑 Guest: guest / guest123
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return render_template_string(login_html, error=error)
-
-
-@app.route("/dashboard", methods=["GET", "POST"])
-def dashboard():
-    if 'username' not in session:
-        return redirect(url_for('login'))
-
-    user_role = session.get('role')
-    username = session.get('username')
-    message = None
-    bill_data = None
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    if request.method == "POST":
-        action = request.form.get("action")
-
-        if action == "book_room":
-            room_num = int(request.form.get("room_num"))
-            guest_name = request.form.get("guest_name")
-            selected_meal = request.form.get("meal_plan")
-            
-            cursor.execute("SELECT status FROM rooms WHERE room_number=?", (room_num,))
-            room = cursor.fetchone()
-            if room and room[0] == 'Available':
-                cursor.execute("UPDATE rooms SET status='Booked', guest_name=?, meal_plan=? WHERE room_number=?", (guest_name, selected_meal, room_num))
-                conn.commit()
-                message = f"வெற்றி: அறை {room_num} ({guest_name})-க்கு {selected_meal} திட்டத்துடன் ஒதுக்கப்பட்டது!"
-            else:
-                message = "தவறு: இந்த அறை ஏற்கனவே முன்பதிவு செய்யப்பட்டுள்ளது."
-
-        elif action == "checkout_room":
-            room_num = int(request.form.get("checkout_num"))
-            nights = int(request.form.get("nights"))
-            
-            cursor.execute("SELECT room_number, category, price_per_night, guest_name, status, meal_plan FROM rooms WHERE room_number=?", (room_num,))
-            room = cursor.fetchone()
-            
-            if room and room[4] == 'Booked':
-                room_price = room[2]
-                meal_plan_name = room[5]
-                meal_price = MEAL_PLANS.get(meal_plan_name, 0)
-                
-                room_total = room_price * nights
-                meal_total = meal_price * nights
-                subtotal = room_total + meal_total
-                
-                gst_tax = subtotal * 0.18
-                grand_total = subtotal + gst_tax
-                
-                bill_data = {
-                    "room_num": room[0],
-                    "category": room[1],
-                    "guest_name": room[3],
-                    "meal_plan": meal_plan_name,
-                    "nights": nights,
-                    "room_total": f"₹{room_total:,.2f}",
-                    "meal_total": f"₹{meal_total:,.2f}",
-                    "subtotal": f"₹{subtotal:,.2f}",
-                    "gst_tax": f"₹{gst_tax:,.2f}",
-                    "grand_total": f"₹{grand_total:,.2f}"
-                }
-                
-                cursor.execute("UPDATE rooms SET status='Available', guest_name='', meal_plan='EP (Room Only)' WHERE room_number=?", (room_num,))
-                conn.commit()
-                message = f"அறை {room_num} காலி செய்யப்பட்டது (Check-out Complete)."
-            else:
-                message = "தவறு: அறை செல்லுபடியற்றது."
-
-        elif action == "book_service":
-            service_type = request.form.get("service_type")
-            b_date = request.form.get("b_date")
-            cursor.execute("INSERT INTO service_bookings (guest_name, service_type, booking_date) VALUES (?, ?, ?)", (username, service_type, b_date))
-            conn.commit()
-            message = f"வெற்றி: {service_type} சேவை {b_date} தேதியில் உறுதிசெய்யப்பட்டது!"
-
-    cursor.execute("SELECT * FROM rooms")
-    rooms_data = cursor.fetchall()
-
-    cursor.execute("SELECT * FROM service_bookings")
-    service_data = cursor.fetchall()
-
-    conn.close()
-
-    dashboard_html = """
-    <!DOCTYPE html>
-    <html lang="ta">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Grand Palace Dashboard</title>
-        <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f0f2f5; margin: 0; padding: 0; }
-            .header { background: #1a252f; color: white; padding: 15px 20px; display: flex; flex-direction: column; gap: 8px; border-bottom: 4px solid #f1c40f; }
-            .header h1 { margin: 0; font-size: 18px; color: #f1c40f; }
-            .user-bar { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
-            .logout-btn { background: #e74c3c; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; }
-            .container { padding: 15px; }
-            .card { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 15px; }
-            h3 { color: #1a252f; border-bottom: 2px solid #f1c40f; padding-bottom: 6px; margin-top: 0; font-size: 16px; }
-            input[type="text"], input[type="number"], input[type="date"], select { width: 100%; box-sizing: border-box; padding: 12px; margin: 6px 0 12px 0; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
-            input[type="submit"] { width: 100%; padding: 13px; background: #27ae60; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; }
-            .btn-checkout { background: #e74c3c !important; }
-            .status-tag { padding: 3px 6px; border-radius: 10px; font-size: 10px; font-weight: bold; color: white; display: inline-block; }
-            .bg-available { background: #2ecc71; }
-            .bg-booked { background: #e74c3c; }
-            .message-box { background: #d4edda; color: #155724; padding: 10px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #28a745; font-size: 13px; text-align: center; }
-            .bill-receipt { background: #fffde7; border: 1px dashed #f1c40f; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 12px; }
-            .table-wrapper { overflow-x: auto; }
-            .room-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
-            .room-table th, .room-table td { padding: 8px 4px; border-bottom: 1px solid #eee; text-align: left; }
-        </style>
-    </head>
-    <body>
-
-        <div class="header">
-            <h1>👑 Grand Palace Portal</h1>
-            <div class="user-bar">
-                <span>User: <b>{{ username }}</b> ({{ user_role }})</span>
-                <a href="/logout" class="logout-btn">Logout</a>
-            </div>
-        </div>
-
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
         <div class="container">
-            {% if message %}
-                <div class="message-box">{{ message }}</div>
-            {% endif %}
-
-            <div class="card">
-                <h3>🏨 Rooms & Meal Plans</h3>
-                <div class="table-wrapper">
-                    <table class="room-table">
-                        <tr>
-                            <th>Room</th>
-                            <th>Category</th>
-                            <th>Price</th>
-                            <th>Meal Plan</th>
-                            <th>Status</th>
-                        </tr>
-                        {% for r_num, cat, price, status, g_name, meal in rooms_data %}
-                        <tr>
-                            <td><b>{{ r_num }}</b></td>
-                            <td>{{ cat }}</td>
-                            <td>₹{{ "{:,.0f}".format(price) }}</td>
-                            <td>{{ meal }}</td>
-                            <td>
-                                {% if status == 'Available' %}
-                                    <span class="status-tag bg-available">Free</span>
-                                {% else %}
-                                    <span class="status-tag bg-booked">{{ g_name }}</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </table>
-                </div>
+            <a class="navbar-brand fs-3" href="/">🏰 Grand Palace</a>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link active" href="/">Home</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#rooms">Suites</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#book">Book Now</a></li>
+                </ul>
             </div>
-
-            {% if user_role == 'Admin' %}
-            <div class="card">
-                <h3>🛎️ Check-In</h3>
-                <form method="POST">
-                    <input type="hidden" name="action" value="book_room">
-                    <input type="number" name="room_num" placeholder="Room Number (e.g. 101)" required>
-                    <input type="text" name="guest_name" placeholder="Guest Full Name" required>
-                    
-                    <label style="font-size: 11px; font-weight: bold;">Meal Package:</label>
-                    <select name="meal_plan" required>
-                        {% for plan, rate in meal_plans.items() %}
-                            <option value="{{ plan }}">{{ plan }} (+₹{{ rate }})</option>
-                        {% endfor %}
-                    </select>
-
-                    <input type="submit" value="Confirm Check-In">
-                </form>
-            </div>
-
-            <div class="card">
-                <h3>🧾 Check-Out & Bill</h3>
-                <form method="POST">
-                    <input type="hidden" name="action" value="checkout_room">
-                    <input type="number" name="checkout_num" placeholder="Room Number" required>
-                    <input type="number" name="nights" placeholder="Nights Stayed" required>
-                    <input type="submit" value="Check-Out & Invoice" class="btn-checkout">
-                </form>
-
-                {% if bill_data %}
-                <div class="bill-receipt">
-                    <h4 style="margin:0 0 8px 0; color:#b7950b;">🧾 Tax Invoice</h4>
-                    Guest: <b>{{ bill_data.guest_name }}</b><br>
-                    Room: <b>{{ bill_data.room_num }} ({{ bill_data.category }})</b><br>
-                    Plan: <b>{{ bill_data.meal_plan }}</b><br>
-                    Nights: <b>{{ bill_data.nights }}</b><hr>
-                    Room Charges: {{ bill_data.room_total }}<br>
-                    Meal Charges: {{ bill_data.meal_total }}<br>
-                    Subtotal: {{ bill_data.subtotal }}<br>
-                    GST (18%): {{ bill_data.gst_tax }}<br>
-                    <h4 style="margin:5px 0 0 0; color:#27ae60;">Total: {{ bill_data.grand_total }}</h4>
-                </div>
-                {% endif %}
-            </div>
-            {% endif %}
-
-            {% if user_role == 'Guest' or user_role == 'Admin' %}
-            <div class="card">
-                <h3>🍽️ Dining & Spa Booking</h3>
-                <form method="POST">
-                    <input type="hidden" name="action" value="book_service">
-                    <select name="service_type" required>
-                        <option value="">Select Service...</option>
-                        <option value="Fine Dining Table">Fine Dining Table</option>
-                        <option value="Luxury Spa & Massage">Luxury Spa & Massage</option>
-                        <option value="Swimming Pool Cabana">Swimming Pool Cabana</option>
-                    </select>
-                    <input type="date" name="b_date" required>
-                    <input type="submit" value="Book Service">
-                </form>
-            </div>
-            {% endif %}
-
         </div>
+    </nav>
 
-    </body>
-    </html>
-    """
-    return render_template_string(dashboard_html, username=username, user_role=user_role, rooms_data=rooms_data, service_data=service_data, message=message, bill_data=bill_data, meal_plans=MEAL_PLANS)
+    <!-- Hero Banner -->
+    <div class="hero-section">
+        <div class="container">
+            <h1 class="display-3 fw-bold">Grand Palace Hotel</h1>
+            <p class="lead">Luxury Stay & World-Class Hospitality</p>
+            <a href="#rooms" class="btn btn-gold btn-lg mt-3">Explore Rooms</a>
+        </div>
+    </div>
 
+    <!-- Rooms Section -->
+    <div class="container my-5" id="rooms">
+        <h2 class="text-center mb-4 text-dark">Luxury Suites & Rooms</h2>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card card-room h-100">
+                    <img src="https://images.unsplash.com/photo-1611892440504-42a792e24d32?auto=format&fit=crop&w=500&q=80" class="card-img-top" alt="Deluxe Room" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
+                    <div class="card-body">
+                        <h4 class="card-title">Deluxe Suite</h4>
+                        <p class="card-text text-muted">King size bed, Ocean view, Free Wi-Fi, and Breakfast.</p>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <span class="price-tag">₹5,000 / night</span>
+                            <a href="#book" class="btn btn-gold">Book</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-room h-100">
+                    <img src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=500&q=80" class="card-img-top" alt="Executive Room" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
+                    <div class="card-body">
+                        <h4 class="card-title">Executive Suite</h4>
+                        <p class="card-text text-muted">Private balcony, Jacuzzi, Mini-bar, Room Service.</p>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <span class="price-tag">₹8,000 / night</span>
+                            <a href="#book" class="btn btn-gold">Book</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-room h-100">
+                    <img src="https://images.unsplash.com/photo-1631049307264-da0ec9d70304?auto=format&fit=crop&w=500&q=80" class="card-img-top" alt="Presidential Room" style="border-top-left-radius: 15px; border-top-right-radius: 15px;">
+                    <div class="card-body">
+                        <h4 class="card-title">Presidential Suite</h4>
+                        <p class="card-text text-muted">Penthouse view, Private pool, Personal Butler service.</p>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <span class="price-tag">₹15,000 / night</span>
+                            <a href="#book" class="btn btn-gold">Book</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
+    <!-- Booking Form Section -->
+    <div class="container my-5 p-4 bg-white rounded-3 shadow-sm" id="book" style="max-width: 600px;">
+        <h3 class="text-center mb-3">Quick Reservation</h3>
+        <form action="/book" method="POST">
+            <div class="mb-3">
+                <label class="form-label">Guest Name</label>
+                <input type="text" name="guest_name" class="form-control" placeholder="Enter your full name" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Select Room Type</label>
+                <select name="room_type" class="form-select">
+                    <option value="Deluxe Suite - ₹5000">Deluxe Suite - ₹5,000</option>
+                    <option value="Executive Suite - ₹8000">Executive Suite - ₹8,000</option>
+                    <option value="Presidential Suite - ₹15000">Presidential Suite - ₹15,000</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Number of Nights</label>
+                <input type="number" name="nights" class="form-control" min="1" value="1" required>
+            </div>
+            <button type="submit" class="btn btn-gold w-100">Confirm Booking</button>
+        </form>
+    </div>
 
+    <!-- Recent Bookings Display -->
+    {% if bookings %}
+    <div class="container my-5">
+        <h3 class="text-center mb-3">Recent Reservations</h3>
+        <div class="table-responsive">
+            <table class="table table-striped table-hover shadow-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>#</th>
+                        <th>Guest Name</th>
+                        <th>Room Type</th>
+                        <th>Nights</th>
+                        <th>Total Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for booking in bookings %}
+                    <tr>
+                        <td>{{ booking[0] }}</td>
+                        <td>{{ booking[1] }}</td>
+                        <td>{{ booking[2] }}</td>
+                        <td>{{ booking[3] }}</td>
+                        <td>₹{{ booking[4] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
+</body>
+</html>
+"""
+
+@app.route('/')
+def home():
+    conn = sqlite3.connect("hotel_enterprise.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM bookings ORDER BY id DESC LIMIT 5")
+    bookings = cursor.fetchall()
+    conn.close()
+    return render_template_string(HTML_TEMPLATE, bookings=bookings)
+
+@app.route('/book', methods=['POST'])
+def book():
+    guest_name = request.form.get('guest_name')
+    room_type_info = request.form.get('room_type')
+    nights = int(request.form.get('nights', 1))
+    
+    # Calculate Total Price
+    price_map = {
+        "Deluxe Suite - ₹5000": 5000,
+        "Executive Suite - ₹8000": 8000,
+        "Presidential Suite - ₹15000": 15000
+    }
+    price_per_night = price_map.get(room_type_info, 5000)
+    total_price = price_per_night * nights
+    
+    conn = sqlite3.connect("hotel_enterprise.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO bookings (guest_name, room_type, nights, total_price) VALUES (?, ?, ?, ?)",
+                   (guest_name, room_type_info.split(" - ")[0], nights, total_price))
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for('home'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
