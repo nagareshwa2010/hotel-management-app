@@ -3,28 +3,39 @@ from flask import Flask, request, render_template_string, redirect, url_for
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_v2")
+app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_v3")
 
-# Database Initialization
+# Database Initialization with Auto-Migration Fix
 def init_db():
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
     
-    # Bookings Table with Meal Plan column
+    # 1. Bookings Table Creation
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS bookings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             guest_name TEXT NOT NULL,
             room_type TEXT NOT NULL,
             nights INTEGER NOT NULL,
-            meal_plan TEXT NOT NULL,
+            meal_plan TEXT DEFAULT 'No Meal (Room Only)',
             total_price INTEGER NOT NULL
         )
     ''')
+    
+    # 2. Migration Check: Ensure meal_plan column exists in existing database
+    cursor.execute("PRAGMA table_info(bookings)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'meal_plan' not in columns:
+        cursor.execute("ALTER TABLE bookings ADD COLUMN meal_plan TEXT DEFAULT 'No Meal (Room Only)'")
+        
     conn.commit()
     conn.close()
 
-init_db()
+# Run DB initialization safely
+try:
+    init_db()
+except Exception as e:
+    print(f"Database setup note: {e}")
 
 # Rooms Data
 ROOMS_DATA = [
@@ -36,7 +47,7 @@ ROOMS_DATA = [
     {"id": 6, "name": "Penthouse Suite", "price": 20000, "desc": "Top floor panoramic city view, private terrace, and plunge pool.", "img": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=500&q=80"}
 ]
 
-# Base Layout with Left Sidebar
+# Base Layout
 BASE_HTML = """
 <!DOCTYPE html>
 <html lang="ta">
@@ -50,32 +61,14 @@ BASE_HTML = """
     <style>
         body { font-family: 'Poppins', sans-serif; background-color: #f4f6f9; overflow-x: hidden; }
         h1, h2, h3, .brand-title { font-family: 'Playfair Display', serif; }
-        
-        /* Left Sidebar Styling */
-        .sidebar {
-            min-height: 100vh;
-            background-color: #0b132b;
-            color: #ffffff;
-        }
-        .sidebar .nav-link {
-            color: #a0aec0;
-            padding: 12px 20px;
-            font-size: 1.05rem;
-            border-radius: 8px;
-            margin-bottom: 5px;
-        }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            color: #d4af37;
-            background-color: #1c2541;
-        }
+        .sidebar { min-height: 100vh; background-color: #0b132b; color: #ffffff; }
+        .sidebar .nav-link { color: #a0aec0; padding: 12px 20px; font-size: 1.05rem; border-radius: 8px; margin-bottom: 5px; }
+        .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #d4af37; background-color: #1c2541; }
         .sidebar .nav-link i { margin-right: 10px; }
-        
         .brand-title { color: #d4af37; font-size: 1.8rem; font-weight: 700; }
-        
         .price-tag { color: #d4af37; font-weight: 600; font-size: 1.2rem; }
         .btn-gold { background-color: #d4af37; color: #0b132b; font-weight: 600; border: none; }
         .btn-gold:hover { background-color: #b59226; color: white; }
-        
         .hero-banner {
             background: linear-gradient(rgba(11, 19, 43, 0.75), rgba(11, 19, 43, 0.75)), 
                         url('https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1350&q=80');
@@ -92,9 +85,7 @@ BASE_HTML = """
     <div class="row">
         <!-- Left Sidebar -->
         <div class="col-md-3 col-lg-2 sidebar p-3 d-flex flex-column">
-            <div class="brand-title my-3 text-center">
-                🏰 NR Hotel
-            </div>
+            <div class="brand-title my-3 text-center">🏰 NR Hotel</div>
             <hr class="text-secondary">
             <ul class="nav nav-pills flex-column mb-auto">
                 <li class="nav-item">
@@ -119,9 +110,7 @@ BASE_HTML = """
                 </li>
             </ul>
             <hr class="text-secondary">
-            <div class="text-center text-muted small">
-                © 2026 NR Hotel Group
-            </div>
+            <div class="text-center text-muted small">© 2026 NR Hotel Group</div>
         </div>
 
         <!-- Main Content Area -->
@@ -136,7 +125,7 @@ BASE_HTML = """
 </html>
 """
 
-# Home Page Template
+# Templates
 HOME_TEMPLATE = BASE_HTML + """
 {% block content %}
 <div class="hero-banner mb-4">
@@ -144,7 +133,6 @@ HOME_TEMPLATE = BASE_HTML + """
     <p class="lead">Experience World-Class Luxury, Elegant Rooms & Dining</p>
     <a href="/rooms" class="btn btn-gold btn-lg mt-3">Explore All Rooms</a>
 </div>
-
 <div class="row text-center g-4 my-3">
     <div class="col-md-4">
         <div class="p-4 bg-white rounded-3 shadow-sm">
@@ -171,7 +159,6 @@ HOME_TEMPLATE = BASE_HTML + """
 {% endblock %}
 """
 
-# Rooms Template
 ROOMS_TEMPLATE = BASE_HTML + """
 {% block content %}
 <h2 class="mb-4">Our Rooms & Suites</h2>
@@ -195,7 +182,6 @@ ROOMS_TEMPLATE = BASE_HTML + """
 {% endblock %}
 """
 
-# Booking Form Template
 BOOKING_TEMPLATE = BASE_HTML + """
 {% block content %}
 <div class="container" style="max-width: 650px;">
@@ -236,12 +222,9 @@ BOOKING_TEMPLATE = BASE_HTML + """
 {% endblock %}
 """
 
-# Bookings & Status Template
 STATUS_TEMPLATE = BASE_HTML + """
 {% block content %}
 <h2 class="mb-4">Room Availability & Live Bookings</h2>
-
-<!-- Room Availability Table -->
 <div class="card border-0 shadow-sm mb-5">
     <div class="card-header bg-dark text-white fw-bold">Room Availability Overview</div>
     <div class="card-body p-0">
@@ -282,7 +265,6 @@ STATUS_TEMPLATE = BASE_HTML + """
     </div>
 </div>
 
-<!-- Bookings List Table -->
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-dark text-white fw-bold">Recent Reservations List</div>
     <div class="card-body p-0">
@@ -304,9 +286,9 @@ STATUS_TEMPLATE = BASE_HTML + """
                         <td>{{ b[0] }}</td>
                         <td class="fw-bold">{{ b[1] }}</td>
                         <td>{{ b[2] }}</td>
-                        <td><span class="badge bg-info text-dark">{{ b[4] }}</span></td>
+                        <td><span class="badge bg-info text-dark">{{ b[4] if b|length > 4 else 'N/A' }}</span></td>
                         <td>{{ b[3] }}</td>
-                        <td class="text-success fw-bold">₹{{ b[5] }}</td>
+                        <td class="text-success fw-bold">₹{{ b[5] if b|length > 5 else b[4] }}</td>
                     </tr>
                     {% else %}
                     <tr>
@@ -324,6 +306,7 @@ STATUS_TEMPLATE = BASE_HTML + """
 # Routes
 @app.route('/')
 def home():
+    init_db()
     return render_template_string(HOME_TEMPLATE, active_page='home')
 
 @app.route('/rooms')
@@ -337,14 +320,13 @@ def book_page():
 
 @app.route('/book', methods=['POST'])
 def book():
+    init_db()
     guest_name = request.form.get('guest_name')
     room_type = request.form.get('room_type')
     meal_plan = request.form.get('meal_plan')
     nights = int(request.form.get('nights', 1))
     
-    # Calculate Prices
     room_price = next((r['price'] for r in ROOMS_DATA if r['name'] == room_type), 2000)
-    
     meal_prices = {
         "No Meal (Room Only)": 0,
         "Breakfast Included": 500,
@@ -352,7 +334,6 @@ def book():
         "Full Board (All Meals Included)": 2000
     }
     meal_price = meal_prices.get(meal_plan, 0)
-    
     total_price = (room_price + meal_price) * nights
     
     conn = sqlite3.connect("hotel_enterprise.db")
@@ -366,15 +347,14 @@ def book():
 
 @app.route('/status')
 def status():
+    init_db()
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM bookings ORDER BY id DESC")
     bookings = cursor.fetchall()
     conn.close()
     
-    # Calculate availability status based on active bookings
     booked_room_names = [b[2] for b in bookings]
-    
     availability = []
     for r in ROOMS_DATA:
         availability.append({
