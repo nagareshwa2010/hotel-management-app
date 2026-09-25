@@ -4,7 +4,7 @@ from datetime import datetime
 from flask import Flask, request, render_template_string, redirect, url_for, session
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_v4")
+app.secret_key = os.environ.get("SECRET_KEY", "nr_hotel_secret_key_v5")
 
 # Database Initialization
 def init_db():
@@ -31,11 +31,6 @@ def init_db():
     cursor.execute("SELECT * FROM users WHERE username = 'admin'")
     if not cursor.fetchone():
         cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)", ("admin", "admin123", 1))
-
-    # Default Guest user account
-    cursor.execute("SELECT * FROM users WHERE username = 'Guest_User'")
-    if not cursor.fetchone():
-        cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)", ("Guest_User", "guestpass", 0))
 
     # 2. Active User Sessions Table
     cursor.execute('''
@@ -108,7 +103,7 @@ ROOMS_DATA = [
     {"id": 6, "name": "Penthouse Suite", "price": 20000, "desc": "Top floor panoramic city view, private terrace, and plunge pool.", "img": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=500&q=80"}
 ]
 
-# Base Layout Template
+# Base Layout Template (Only shown after login)
 BASE_LAYOUT = """
 <!DOCTYPE html>
 <html lang="en">
@@ -148,12 +143,10 @@ BASE_LAYOUT = """
         <div class="col-md-3 col-lg-2 sidebar p-3 d-flex flex-column">
             <div class="brand-title my-3 text-center">🏰 NR Hotel</div>
             
-            {% if session.get('username') %}
             <div class="text-center text-warning mb-2 small">
-                <i class="bi bi-person-circle"></i> Logged in as: <strong>{{ session.get('username') }}</strong>
+                <i class="bi bi-person-circle"></i> Welcome, <strong>{{ session.get('username') }}</strong>
                 {% if is_admin %}<br><span class="badge bg-danger mt-1">Admin</span>{% endif %}
             </div>
-            {% endif %}
 
             <hr class="text-secondary">
             <ul class="nav nav-pills flex-column mb-auto">
@@ -177,33 +170,17 @@ BASE_LAYOUT = """
                         <i class="bi bi-card-checklist"></i> Bookings & Status
                     </a>
                 </li>
-                <hr class="text-secondary">
-                {% if session.get('username') %}
+            </ul>
+            
+            <hr class="text-secondary">
+            <ul class="nav nav-pills flex-column">
                 <li>
                     <a href="/logout" class="nav-link text-danger">
                         <i class="bi bi-box-arrow-right"></i> Logout
                     </a>
                 </li>
-                {% else %}
-                <li>
-                    <a href="/login" class="nav-link {% if active_page == 'login' %}active{% endif %}">
-                        <i class="bi bi-box-arrow-in-right"></i> Login
-                    </a>
-                </li>
-                <li>
-                    <a href="/register" class="nav-link {% if active_page == 'register' %}active{% endif %}">
-                        <i class="bi bi-person-plus-fill"></i> Register
-                    </a>
-                </li>
-                <li>
-                    <a href="/guest_login" class="nav-link text-info">
-                        <i class="bi bi-person-badge-fill"></i> Guest Login
-                    </a>
-                </li>
-                {% endif %}
             </ul>
-            <hr class="text-secondary">
-            <div class="text-center text-muted small">© 2026 NR Hotel Group</div>
+            <div class="text-center text-muted small mt-3">© 2026 NR Hotel Group</div>
         </div>
 
         <!-- Main Content Area -->
@@ -218,7 +195,53 @@ BASE_LAYOUT = """
 </html>
 """
 
-# Page Templates
+# Standalone Auth Template (For Login/Register pages without Sidebar)
+AUTH_LAYOUT = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NR Hotel - Authentication</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Poppins', sans-serif; 
+            background: linear-gradient(rgba(11, 19, 43, 0.8), rgba(11, 19, 43, 0.8)), 
+                        url('https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1350&q=80');
+            background-size: cover;
+            background-position: center;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .auth-card {
+            background: #ffffff;
+            border-radius: 15px;
+            padding: 35px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        }
+        .brand-title { font-family: 'Playfair Display', serif; color: #0b132b; font-size: 2rem; text-align: center; font-weight: 700; }
+        .btn-gold { background-color: #d4af37; color: #0b132b; font-weight: 600; border: none; }
+        .btn-gold:hover { background-color: #b59226; color: white; }
+    </style>
+</head>
+<body>
+    <div class="auth-card">
+        <div class="brand-title mb-2">🏰 NR Hotel</div>
+        <p class="text-center text-muted small mb-4">Please login or register to access the dashboard</p>
+        BODY_CONTENT
+    </div>
+</body>
+</html>
+"""
+
+# Pages Content
 HOME_CONTENT = """
 <div class="hero-banner mb-4">
     <h1 class="display-4 fw-bold">Welcome to NR Hotel</h1>
@@ -228,55 +251,42 @@ HOME_CONTENT = """
 """
 
 LOGIN_CONTENT = """
-<div class="container" style="max-width: 450px;">
-    <div class="bg-white p-4 rounded-3 shadow-sm mt-5">
-        <h3 class="mb-4 text-center">Login</h3>
-        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-        <form action="/login" method="POST">
-            <div class="mb-3">
-                <label class="form-label fw-bold">Username</label>
-                <input type="text" name="username" class="form-control" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-bold">Password</label>
-                <input type="password" name="password" class="form-control" required>
-            </div>
-            <button type="submit" class="btn btn-gold w-100 py-2">Login</button>
-        </form>
-        <hr>
-        <div class="text-center">
-            <a href="/guest_login" class="btn btn-outline-info w-100 py-2 mb-2">
-                <i class="bi bi-person-badge-fill"></i> Continue as Guest
-            </a>
-            <small class="text-muted">Default Admin Credentials: <b>admin / admin123</b></small>
-        </div>
+{% if error %}<div class="alert alert-danger p-2 small">{{ error }}</div>{% endif %}
+<form action="/login" method="POST">
+    <div class="mb-3">
+        <label class="form-label fw-bold">Username</label>
+        <input type="text" name="username" class="form-control" required placeholder="Enter username">
     </div>
+    <div class="mb-3">
+        <label class="form-label fw-bold">Password</label>
+        <input type="password" name="password" class="form-control" required placeholder="Enter password">
+    </div>
+    <button type="submit" class="btn btn-gold w-100 py-2">Login</button>
+</form>
+<hr>
+<div class="text-center">
+    <p class="small text-muted mb-2">Don't have an account?</p>
+    <a href="/register" class="btn btn-outline-dark w-100 py-2">Register Now</a>
 </div>
 """
 
 REGISTER_CONTENT = """
-<div class="container" style="max-width: 450px;">
-    <div class="bg-white p-4 rounded-3 shadow-sm mt-5">
-        <h3 class="mb-4 text-center">Register Account</h3>
-        {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-        <form action="/register" method="POST">
-            <div class="mb-3">
-                <label class="form-label fw-bold">Choose Username</label>
-                <input type="text" name="username" class="form-control" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label fw-bold">Choose Password</label>
-                <input type="password" name="password" class="form-control" required>
-            </div>
-            <button type="submit" class="btn btn-gold w-100 py-2">Register</button>
-        </form>
-        <hr>
-        <div class="text-center">
-            <a href="/guest_login" class="btn btn-outline-info w-100 py-2">
-                <i class="bi bi-person-badge-fill"></i> Continue as Guest
-            </a>
-        </div>
+{% if error %}<div class="alert alert-danger p-2 small">{{ error }}</div>{% endif %}
+<form action="/register" method="POST">
+    <div class="mb-3">
+        <label class="form-label fw-bold">Choose Username</label>
+        <input type="text" name="username" class="form-control" required placeholder="Choose a username">
     </div>
+    <div class="mb-3">
+        <label class="form-label fw-bold">Choose Password</label>
+        <input type="password" name="password" class="form-control" required placeholder="Choose a password">
+    </div>
+    <button type="submit" class="btn btn-gold w-100 py-2">Register Account</button>
+</form>
+<hr>
+<div class="text-center">
+    <p class="small text-muted mb-2">Already registered?</p>
+    <a href="/login" class="btn btn-outline-dark w-100 py-2">Back to Login</a>
 </div>
 """
 
@@ -493,40 +503,17 @@ def render_page(content, **context):
     full_template = BASE_LAYOUT.replace("BODY_CONTENT", content)
     return render_template_string(full_template, is_admin=is_admin_user(), **context)
 
-# Routes
+def render_auth_page(content, **context):
+    full_template = AUTH_LAYOUT.replace("BODY_CONTENT", content)
+    return render_template_string(full_template, **context)
+
+# Routes Logic
 @app.route('/')
 def home():
+    if 'username' not in session:
+        return redirect(url_for('login'))
     init_db()
     return render_page(HOME_CONTENT, active_page='home')
-
-@app.route('/guest_login')
-def guest_login():
-    init_db()
-    session['username'] = 'Guest_User'
-    log_user_session('Guest_User')
-    return redirect(url_for('home'))
-
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    init_db()
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        conn = sqlite3.connect("hotel_enterprise.db")
-        cursor = conn.cursor()
-        try:
-            cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, 0)", (username, password))
-            conn.commit()
-            conn.close()
-            session['username'] = username
-            log_user_session(username)
-            return redirect(url_for('home'))
-        except sqlite3.IntegrityError:
-            conn.close()
-            return render_page(REGISTER_CONTENT, active_page='register', error="Username already exists!")
-            
-    return render_page(REGISTER_CONTENT, active_page='register')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -546,19 +533,43 @@ def login():
             log_user_session(username)
             return redirect(url_for('home'))
         else:
-            return render_page(LOGIN_CONTENT, active_page='login', error="Invalid username or password")
+            return render_auth_page(LOGIN_CONTENT, error="தவறான பயனர்பெயர் அல்லது கடவுச்சொல்!")
             
-    return render_page(LOGIN_CONTENT, active_page='login')
+    return render_auth_page(LOGIN_CONTENT)
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    init_db()
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        conn = sqlite3.connect("hotel_enterprise.db")
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, 0)", (username, password))
+            conn.commit()
+            conn.close()
+            session['username'] = username
+            log_user_session(username)
+            return redirect(url_for('home'))
+        except sqlite3.IntegrityError:
+            conn.close()
+            return render_auth_page(REGISTER_CONTENT, error="இந்த பயனர்பெயர் ஏற்கனவே உள்ளது!")
+            
+    return render_auth_page(REGISTER_CONTENT)
 
 @app.route('/logout')
 def logout():
     if 'username' in session:
         clear_user_session(session['username'])
         session.pop('username', None)
-    return redirect(url_for('home'))
+    return redirect(url_for('login'))
 
 @app.route('/rooms')
 def rooms():
+    if 'username' not in session:
+        return redirect(url_for('login'))
     return render_page(ROOMS_CONTENT, rooms=ROOMS_DATA, active_page='rooms')
 
 @app.route('/book_page')
@@ -601,7 +612,7 @@ def book():
 
 @app.route('/checkin/<int:booking_id>')
 def checkin(booking_id):
-    if not is_admin_user():
+    if 'username' not in session or not is_admin_user():
         return redirect(url_for('login'))
         
     conn = sqlite3.connect("hotel_enterprise.db")
@@ -613,7 +624,7 @@ def checkin(booking_id):
 
 @app.route('/checkout/<int:booking_id>')
 def checkout(booking_id):
-    if not is_admin_user():
+    if 'username' not in session or not is_admin_user():
         return redirect(url_for('login'))
         
     conn = sqlite3.connect("hotel_enterprise.db")
@@ -625,6 +636,8 @@ def checkout(booking_id):
 
 @app.route('/status')
 def status():
+    if 'username' not in session:
+        return redirect(url_for('login'))
     init_db()
     conn = sqlite3.connect("hotel_enterprise.db")
     cursor = conn.cursor()
@@ -632,7 +645,6 @@ def status():
     cursor.execute("SELECT * FROM bookings ORDER BY id DESC")
     bookings = cursor.fetchall()
     
-    # Retrieve active user sessions for Admin view
     cursor.execute("SELECT * FROM active_sessions ORDER BY id DESC")
     active_users = cursor.fetchall()
     
